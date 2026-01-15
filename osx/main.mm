@@ -7,6 +7,7 @@
 #include "alert_window.hpp"
 #include "menu.hpp"
 #include "window.hpp"
+#include <QuartzCore/QuartzCore.h>
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 @end
@@ -47,64 +48,66 @@
     Routine routine_;
 }
 - (void)createMainWindow {
-    // ... 获取 screenRect ...
+    // Initial window size and position
+    const float kNotchWidth = 300.0f;
+    const float kNotchHeight = 44.0f;
     
-    // [修改] 初始大小设置为折叠状态
-    float notchWidth = 200.0f;
-    float notchHeight = 44.0f; // 标准 Notch 高度
-    NSRect screenFrame = [NSScreen mainScreen].frame;
-    
-    // 计算顶部居中位置
+    NSRect screenRect = [NSScreen mainScreen].frame;
     NSRect initialRect = NSMakeRect(
-        (screenFrame.size.width - notchWidth) / 2,
-        screenFrame.size.height - notchHeight, // 屏幕顶部
-        notchWidth,
-        notchHeight
+        (screenRect.size.width - kNotchWidth) / 2.0,
+        screenRect.size.height - kNotchHeight,
+        kNotchWidth,
+        kNotchHeight
     );
 
     window_ = [[Window alloc] initWithContentRect:initialRect
                                         styleMask:NSWindowStyleMaskBorderless
                                           backing:NSBackingStoreBuffered
                                             defer:NO];
-
     windowDelegate_ = [[WindowDelegate alloc] init];
 
     [window_ setDelegate:windowDelegate_];
     [window_ setTitle:@"yoMMD"];
+    
+    [window_ setCollectionBehavior: NSWindowCollectionBehaviorCanJoinAllSpaces | 
+                                    NSWindowCollectionBehaviorStationary | 
+                                    NSWindowCollectionBehaviorFullScreenAuxiliary];
+
     [window_ setIsVisible:YES];
     [window_ setOpaque:NO];
-    [window_ setHasShadow:NO];
     [window_ setBackgroundColor:[NSColor clearColor]];
-    [window_ setLevel:NSFloatingWindowLevel];
-    [window_ setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
-                                  NSWindowCollectionBehaviorStationary |
-                                  NSWindowCollectionBehaviorTransient |
-                                  NSWindowCollectionBehaviorFullScreenAuxiliary |
-                                  NSWindowCollectionBehaviorFullScreenDisallowsTiling |
-                                  NSWindowCollectionBehaviorIgnoresCycle];
+    [window_ setHasShadow:NO];
+    [window_ setLevel:NSMainMenuWindowLevel + 2];
+    [window_ setIgnoresMouseEvents:NO];
 
-    // [关键修改] 为了让 mouseEntered 生效，必须接受鼠标事件
-    // boring.notch 的行为是：平时透明穿透，但有内容区域不穿透。
-    // 简单原型：先设为 NO 以响应 hover。
-    [window_ setIgnoresMouseEvents:NO]; 
-    
     viewDelegate_ = [[ViewDelegate alloc] init];
     metalDevice_ = MTLCreateSystemDefaultDevice();
-    view_ = [[View alloc] init];
+    
+    // View container
+    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, kNotchWidth, kNotchHeight)];
+    [containerView setWantsLayer:YES];
+    containerView.layer.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
+    containerView.layer.masksToBounds = YES;
+    if (@available(macOS 10.15, *)) {
+        containerView.layer.cornerCurve = kCACornerCurveContinuous;
+    }
+
+    view_ = [[View alloc] initWithFrame:containerView.bounds];
+    [view_ setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [view_ setPreferredFramesPerSecond:static_cast<NSInteger>(Constant::FPS)];
     [view_ setDevice:metalDevice_];
     [view_ setColorPixelFormat:MTLPixelFormatBGRA8Unorm];
     [view_ setDepthStencilPixelFormat:MTLPixelFormatDepth32Float_Stencil8];
     [view_ setSampleCount:static_cast<NSUInteger>(Constant::PreferredSampleCount)];
-    // Postpone setting view delegate until every initialization process is
-    // done in order to prohibit MMD drawer to draw models while showing errors
-    // due to failure of loading MMD models (e.g. MMD model path is given, but
-    // the path is invalid).
+    
+    [containerView addSubview:view_];
 
-    [window_ setContentView:view_];
-    [[view_ layer] setMagnificationFilter:kCAFilterNearest];
-    [[view_ layer] setOpaque:NO];  // Make transparent
+    [window_ setContentView:containerView];
+
+    // HACK: Forced initial frame to avoid auto-resize issues
+    [window_ setFrame:initialRect display:YES];
 }
+
 - (void)createStatusItem {
     const auto iconData = Resource::getStatusIconData();
     NSData *nsIconData = [NSData dataWithBytes:iconData.data() length:iconData.length()];
@@ -131,17 +134,17 @@
 - (void)changeWindowScreen:(NSUInteger)scID {
     const NSScreen *dst = findScreenFromID(scID);
     if (!dst) {
-        // Display not found.  Maybe the connection for the target display is
-        // removed.
         Info::Log("Display not found: %ld", scID);
         return;
     }
-    [window_ setFrame:dst.visibleFrame display:YES animate:NO];
+    // [修改] 切换屏幕时也保持在顶部
+    NSRect frame = window_.frame;
+    NSRect screenFrame = dst.frame;
+    frame.origin.x = screenFrame.origin.x + (screenFrame.size.width - frame.size.width) / 2.0;
+    frame.origin.y = screenFrame.origin.y + screenFrame.size.height - frame.size.height;
+    [window_ setFrame:frame display:YES animate:NO];
 }
 - (NSMenu *)getAppMenu {
-    // NOTE: Appropriating "appMenu_" here will break status menu after using
-    // right click menu.  (Status menu will disappear after a use of right
-    // click menu.)  As a workaround, make a new NSMenu object and use it.
     NSMenu *menu = [[NSMenu alloc] init];
     [menu setDelegate:appMenuDelegate_];
     return menu;

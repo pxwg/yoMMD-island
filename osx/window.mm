@@ -24,7 +24,6 @@ private:
     bool shouldSkip_;  // TRUE while gesture should be skipped
     std::array<bool, static_cast<std::size_t>(Keycode::Count)> prevKeyState_;
 };
-// ... (GestureController 实现保持不变) ...
 
 GestureController::GestureController() : shouldSkip_(false) {}
 
@@ -64,7 +63,6 @@ void GestureController::Emit(
 @implementation Window {
     GestureController gestureController_;
 }
-// 注意：这里移除了 updateTrackingAreas 等相关代码，只保留原有的 Window 逻辑
 - (void)flagsChanged:(NSEvent *)event {
     using KeycodeMap = std::pair<NSEventModifierFlags, Keycode>;
     constexpr std::array<KeycodeMap, static_cast<size_t>(Keycode::Count)> keys({{
@@ -143,12 +141,7 @@ void GestureController::Emit(
 
 @implementation WindowDelegate
 - (void)windowDidChangeScreen:(NSNotification *)notification {
-    NSWindow *window = [notification object];
-    const NSScreen *screen = [window screen];
-    if (!NSEqualRects(window.frame, screen.visibleFrame)) {
-        // 在此原型中，我们不需要强制全屏，因为窗口大小由灵动岛逻辑控制
-        // [window setFrame:screen.visibleFrame display:YES animate:NO];
-    }
+    // 移除自动全屏逻辑
 }
 - (void)windowWillClose:(NSNotification *)notification {
     [NSApp terminate:self];
@@ -156,7 +149,7 @@ void GestureController::Emit(
 @end
 
 @implementation View {
-    NSTrackingArea *trackingArea_; // [新增]
+    NSTrackingArea *trackingArea_;
 }
 
 + (NSMenu *)defaultMenu {
@@ -166,14 +159,12 @@ void GestureController::Emit(
     return NO;
 }
 
-// [新增] 必须实现 updateTrackingAreas
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
     if (trackingArea_) {
         [self removeTrackingArea:trackingArea_];
     }
     
-    // 监控鼠标进入和离开
     NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited | 
                                     NSTrackingActiveAlways | 
                                     NSTrackingInVisibleRect;
@@ -185,49 +176,56 @@ void GestureController::Emit(
     [self addTrackingArea:trackingArea_];
 }
 
-// [新增] 鼠标进入：展开灵动岛
+// Mouse Enter: Expand the dynamic island
 - (void)mouseEntered:(NSEvent *)event {
     auto& routine = [getAppMain() getRoutine];
-    routine.SetNotchState(true); // C++ 层：切换相机目标
+    routine.SetNotchState(true); 
     
-    // 获取当前 View 所在的 Window
     NSWindow *window = [self window];
     if (!window) return;
-
-    NSRect frame = window.frame;
-    float originalTop = frame.origin.y + frame.size.height;
     
-    // 目标大小：展开 (400x300)
-    frame.size.width = 400;
-    frame.size.height = 300;
+    NSRect screenFrame = [NSScreen mainScreen].frame;
     
-    // 保持顶部位置不变 (向下展开)
-    frame.origin.x = ([NSScreen mainScreen].frame.size.width - frame.size.width) / 2;
-    frame.origin.y = originalTop - frame.size.height;
+    float w = 400.0f;
+    float h = 300.0f;
     
-    [window setFrame:frame display:YES animate:YES];
+    NSRect newFrame = NSMakeRect(
+        (screenFrame.size.width - w) / 2.0,
+        screenFrame.size.height - h,
+        w, h
+    );
+    
+    [window setFrame:newFrame display:YES animate:YES];
+    
+    if (self.superview && self.superview.layer) {
+        self.superview.layer.cornerRadius = 24.0f;
+    }
 }
 
-// [新增] 鼠标离开：折叠灵动岛
+// Mouse Exit: Fold the dynamic island
 - (void)mouseExited:(NSEvent *)event {
     auto& routine = [getAppMain() getRoutine];
-    routine.SetNotchState(false); // C++ 层：切换相机目标
+    routine.SetNotchState(false);
     
     NSWindow *window = [self window];
     if (!window) return;
 
-    NSRect frame = window.frame;
-    float originalTop = frame.origin.y + frame.size.height;
+    NSRect screenFrame = [NSScreen mainScreen].frame;
     
-    // 目标大小：折叠 (200x44)
-    frame.size.width = 200;
-    frame.size.height = 44; 
+    float w = 300.0f; 
+    float h = 44.0f;
     
-    // 保持顶部位置不变
-    frame.origin.x = ([NSScreen mainScreen].frame.size.width - frame.size.width) / 2;
-    frame.origin.y = originalTop - frame.size.height;
+    NSRect newFrame = NSMakeRect(
+        (screenFrame.size.width - w) / 2.0,
+        screenFrame.size.height - h,
+        w, h
+    );
     
-    [window setFrame:frame display:YES animate:YES];
+    [window setFrame:newFrame display:YES animate:YES];
+    
+    if (self.superview && self.superview.layer) {
+        self.superview.layer.cornerRadius = h / 2.0;
+    }
 }
 
 @end
