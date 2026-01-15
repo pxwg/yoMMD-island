@@ -148,6 +148,10 @@ public:
     void ParseConfig(const CmdArgs& args);
     const Config& GetConfig() const;
 
+    // [新增] 灵动岛状态控制接口
+    void SetNotchState(bool isOpen);
+    bool IsNotchOpen() const { return isNotchOpen_; }
+
 private:
     using ImageMap = std::map<std::string, Image>;
     void initBuffers();
@@ -158,10 +162,20 @@ private:
     std::optional<sg_image> getTexture(const std::string& path);
     void updateGravity();
 
+    // [新增] 灵动岛相机更新逻辑
+    void updateNotchCamera(float deltaTime);
+
 private:
     struct Camera {
         glm::vec3 eye;
         glm::vec3 center;
+    };
+
+    // [新增] 灵动岛相机结构定义
+    struct NotchCamera {
+        glm::vec3 eye;
+        glm::vec3 center;
+        float fov;
     };
 
     Config config_;
@@ -197,6 +211,12 @@ private:
     sg_sampler sampler_toon_texture_;
 
     Camera defaultCamera_;
+
+    // [新增] 灵动岛状态和相机变量
+    bool isNotchOpen_;
+    NotchCamera cameraClosed_;         // 折叠状态相机参数
+    NotchCamera cameraOpen_;           // 展开状态相机参数
+    NotchCamera currentRenderCamera_;  // 当前渲染用的相机参数（插值结果）
 
     // Timers for animation.
     uint64_t timeBeginAnimation_;

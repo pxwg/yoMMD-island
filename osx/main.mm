@@ -47,27 +47,26 @@
     Routine routine_;
 }
 - (void)createMainWindow {
-    const NSUInteger style = NSWindowStyleMaskBorderless;
-    // const NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
-    const auto screenRect = []() {
-        const auto& screenNumber = [getAppMain() getRoutine].GetConfig().defaultScreenNumber;
-        if (screenNumber.has_value()) {
-            NSScreen *screen = findScreenFromID(*screenNumber);
-            if (screen)
-                return screen.visibleFrame;
-        }
-        return [NSScreen mainScreen].visibleFrame;
-    }();
-    const NSUInteger collectionBehavior =
-        NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary |
-        NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorFullScreenAuxiliary |
-        NSWindowCollectionBehaviorFullScreenDisallowsTiling |
-        NSWindowCollectionBehaviorIgnoresCycle;
+    // ... 获取 screenRect ...
+    
+    // [修改] 初始大小设置为折叠状态
+    float notchWidth = 200.0f;
+    float notchHeight = 44.0f; // 标准 Notch 高度
+    NSRect screenFrame = [NSScreen mainScreen].frame;
+    
+    // 计算顶部居中位置
+    NSRect initialRect = NSMakeRect(
+        (screenFrame.size.width - notchWidth) / 2,
+        screenFrame.size.height - notchHeight, // 屏幕顶部
+        notchWidth,
+        notchHeight
+    );
 
-    window_ = [[Window alloc] initWithContentRect:screenRect
-                                        styleMask:style
+    window_ = [[Window alloc] initWithContentRect:initialRect
+                                        styleMask:NSWindowStyleMaskBorderless
                                           backing:NSBackingStoreBuffered
                                             defer:NO];
+
     windowDelegate_ = [[WindowDelegate alloc] init];
 
     [window_ setDelegate:windowDelegate_];
@@ -77,9 +76,18 @@
     [window_ setHasShadow:NO];
     [window_ setBackgroundColor:[NSColor clearColor]];
     [window_ setLevel:NSFloatingWindowLevel];
-    [window_ setCollectionBehavior:collectionBehavior];
-    [window_ setIgnoresMouseEvents:YES];
+    [window_ setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                  NSWindowCollectionBehaviorStationary |
+                                  NSWindowCollectionBehaviorTransient |
+                                  NSWindowCollectionBehaviorFullScreenAuxiliary |
+                                  NSWindowCollectionBehaviorFullScreenDisallowsTiling |
+                                  NSWindowCollectionBehaviorIgnoresCycle];
 
+    // [关键修改] 为了让 mouseEntered 生效，必须接受鼠标事件
+    // boring.notch 的行为是：平时透明穿透，但有内容区域不穿透。
+    // 简单原型：先设为 NO 以响应 hover。
+    [window_ setIgnoresMouseEvents:NO]; 
+    
     viewDelegate_ = [[ViewDelegate alloc] init];
     metalDevice_ = MTLCreateSystemDefaultDevice();
     view_ = [[View alloc] init];

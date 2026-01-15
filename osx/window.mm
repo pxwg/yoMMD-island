@@ -6,6 +6,7 @@
 #include "../keyboard.hpp"
 #include "main.hpp"
 
+// ... (GestureController 类保持不变) ...
 class GestureController {
 public:
     GestureController();
@@ -23,6 +24,7 @@ private:
     bool shouldSkip_;  // TRUE while gesture should be skipped
     std::array<bool, static_cast<std::size_t>(Keycode::Count)> prevKeyState_;
 };
+// ... (GestureController 实现保持不变) ...
 
 GestureController::GestureController() : shouldSkip_(false) {}
 
@@ -62,6 +64,7 @@ void GestureController::Emit(
 @implementation Window {
     GestureController gestureController_;
 }
+// 注意：这里移除了 updateTrackingAreas 等相关代码，只保留原有的 Window 逻辑
 - (void)flagsChanged:(NSEvent *)event {
     using KeycodeMap = std::pair<NSEventModifierFlags, Keycode>;
     constexpr std::array<KeycodeMap, static_cast<size_t>(Keycode::Count)> keys({{
@@ -96,9 +99,6 @@ void GestureController::Emit(
     gestureController_.Emit(event, worker, cancelKeys);
 }
 - (void)magnifyWithEvent:(NSEvent *)event {
-    // NOTE: It seems touchpad gesture events aren't dispatched when
-    // application isn't active.  Do try activate appliction when touchpad
-    // gesture doesn't work.
     auto& routine = [getAppMain() getRoutine];
     GesturePhase phase = GesturePhase::Unknown;
     switch (event.phase) {
@@ -137,8 +137,6 @@ void GestureController::Emit(
     routine.OnGestureEnd();
 }
 - (BOOL)canBecomeKeyWindow {
-    // Return YES here to enable touch gesture events; by default, they're
-    // disabled for boderless windows.
     return YES;
 }
 @end
@@ -148,7 +146,8 @@ void GestureController::Emit(
     NSWindow *window = [notification object];
     const NSScreen *screen = [window screen];
     if (!NSEqualRects(window.frame, screen.visibleFrame)) {
-        [window setFrame:screen.visibleFrame display:YES animate:NO];
+        // 在此原型中，我们不需要强制全屏，因为窗口大小由灵动岛逻辑控制
+        // [window setFrame:screen.visibleFrame display:YES animate:NO];
     }
 }
 - (void)windowWillClose:(NSNotification *)notification {
@@ -156,13 +155,81 @@ void GestureController::Emit(
 }
 @end
 
-@implementation View
+@implementation View {
+    NSTrackingArea *trackingArea_; // [新增]
+}
+
 + (NSMenu *)defaultMenu {
     return [getAppMain() getAppMenu];
 }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event {
     return NO;
 }
+
+// [新增] 必须实现 updateTrackingAreas
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (trackingArea_) {
+        [self removeTrackingArea:trackingArea_];
+    }
+    
+    // 监控鼠标进入和离开
+    NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited | 
+                                    NSTrackingActiveAlways | 
+                                    NSTrackingInVisibleRect;
+                                    
+    trackingArea_ = [[NSTrackingArea alloc] initWithRect:self.bounds
+                                                 options:options
+                                                   owner:self
+                                                userInfo:nil];
+    [self addTrackingArea:trackingArea_];
+}
+
+// [新增] 鼠标进入：展开灵动岛
+- (void)mouseEntered:(NSEvent *)event {
+    auto& routine = [getAppMain() getRoutine];
+    routine.SetNotchState(true); // C++ 层：切换相机目标
+    
+    // 获取当前 View 所在的 Window
+    NSWindow *window = [self window];
+    if (!window) return;
+
+    NSRect frame = window.frame;
+    float originalTop = frame.origin.y + frame.size.height;
+    
+    // 目标大小：展开 (400x300)
+    frame.size.width = 400;
+    frame.size.height = 300;
+    
+    // 保持顶部位置不变 (向下展开)
+    frame.origin.x = ([NSScreen mainScreen].frame.size.width - frame.size.width) / 2;
+    frame.origin.y = originalTop - frame.size.height;
+    
+    [window setFrame:frame display:YES animate:YES];
+}
+
+// [新增] 鼠标离开：折叠灵动岛
+- (void)mouseExited:(NSEvent *)event {
+    auto& routine = [getAppMain() getRoutine];
+    routine.SetNotchState(false); // C++ 层：切换相机目标
+    
+    NSWindow *window = [self window];
+    if (!window) return;
+
+    NSRect frame = window.frame;
+    float originalTop = frame.origin.y + frame.size.height;
+    
+    // 目标大小：折叠 (200x44)
+    frame.size.width = 200;
+    frame.size.height = 44; 
+    
+    // 保持顶部位置不变
+    frame.origin.x = ([NSScreen mainScreen].frame.size.width - frame.size.width) / 2;
+    frame.origin.y = originalTop - frame.size.height;
+    
+    [window setFrame:frame display:YES animate:YES];
+}
+
 @end
 
 @implementation ViewDelegate

@@ -242,16 +242,6 @@ void UserView::OnMouseDragged() {
     }
 
     auto delta = Context::getMousePosition() - actionHelper_.refPoint;
-
-    // Translate distance in screen into distance in model world.
-    //
-    //              winsize.x                     2.0
-    //            +------------+                +------+
-    // winsize.y  |            |   ----->   2.0 |      |
-    //            |            |                |      |
-    //            +------------+                +------+
-    //
-    // Note that "toWorldCoord" shouldn't be used here.
     delta = 2.0f * delta / Context::getWindowSize();
     transform_.translation = actionHelper_.firstTransform.translation + toVec3(delta, 0.0f);
 }
@@ -270,7 +260,6 @@ void UserView::OnWheelScrolled(float delta) {
 
 void UserView::OnGestureZoom(GesturePhase phase, float delta) {
     glm::vec2 refpoint;
-    // TODO: Switch by referring actionHelper_.action ?
     if (phase == GesturePhase::Begin || phase == GesturePhase::Unknown) {
         refpoint = Context::getMousePosition();
     } else {
@@ -286,7 +275,6 @@ void UserView::SetDefaultTranslation(glm::vec2 pos) {
 }
 
 void UserView::SetDefaultScaling(float scale) {
-    // TODO: Ensure the default scale is not too small.
     transform_.scale = scale;
     defaultTransform_.scale = scale;
 }
@@ -344,7 +332,6 @@ void UserView::changeRotation(float delta, glm::vec2 refpoint) {
     while (transform_.rotation < 0.0f)
         transform_.rotation += PI2;
 
-    // Adjust translation.
     delta = transform_.rotation - actionHelper_.firstTransform.rotation;
     const float c = std::cos(delta), s = std::sin(delta);
     const glm::vec2 origin =
@@ -376,7 +363,8 @@ Routine::Routine() :
     timeLastFrame_(0),
     motionID_(0),
     needBridgeMotions_(false),
-    rand_(static_cast<int>(std::time(nullptr))) {
+    rand_(static_cast<int>(std::time(nullptr))),
+    isNotchOpen_(false) {  // Initialize notch state
     userView_.SetCallback({
         .OnRotationChanged = [this]() { updateGravity(); },
     });
@@ -384,6 +372,25 @@ Routine::Routine() :
 
 Routine::~Routine() {
     Terminate();
+}
+
+// [新增] 灵动岛状态设置实现
+void Routine::SetNotchState(bool isOpen) {
+    isNotchOpen_ = isOpen;
+}
+
+// [新增] 灵动岛相机插值更新实现
+void Routine::updateNotchCamera(float deltaTime) {
+    const NotchCamera& target = isNotchOpen_ ? cameraOpen_ : cameraClosed_;
+
+    // 使用简单的 Lerp 进行平滑，速度可调
+    float speed = 10.0f * deltaTime;
+    // 限制插值因子不超过1.0，防止过冲
+    float t = speed > 1.0f ? 1.0f : speed;
+
+    currentRenderCamera_.eye += (target.eye - currentRenderCamera_.eye) * t;
+    currentRenderCamera_.center += (target.center - currentRenderCamera_.center) * t;
+    currentRenderCamera_.fov += (target.fov - currentRenderCamera_.fov) * t;
 }
 
 void Routine::Init() {
@@ -437,6 +444,24 @@ void Routine::Init() {
     userView_.SetDefaultTranslation(config_.defaultModelPosition);
     userView_.SetDefaultScaling(config_.defaultScale);
 
+    // [新增] 初始化灵动岛相机配置
+    // 注意：MMD模型单位通常 1 unit = 8cm，标准模型头部高度约为 15-20
+
+    // 1. 折叠状态 (只看头)
+    // 这里的坐标需要根据具体模型调整，假设头部中心在 (0, 16, 0)
+    cameraClosed_.eye = glm::vec3(0.0f, 16.0f, 6.0f);  // 离脸很近
+    cameraClosed_.center = glm::vec3(0.0f, 16.0f, 0.0f);
+    cameraClosed_.fov = 25.0f;  // 较小的 FOV 减少畸变
+
+    // 2. 展开状态 (看半身)
+    cameraOpen_.eye = glm::vec3(0.0f, 13.0f, 25.0f);  // 拉远
+    cameraOpen_.center = glm::vec3(0.0f, 13.0f, 0.0f);
+    cameraOpen_.fov = 35.0f;
+
+    // 初始状态为关闭
+    isNotchOpen_ = false;
+    currentRenderCamera_ = cameraClosed_;
+
     selectNextMotion();
     needBridgeMotions_ = false;
     timeBeginAnimation_ = timeLastFrame_ = stm_now();
@@ -479,7 +504,6 @@ void Routine::initBuffers() {
                 },
         });
 
-    // Prepare Index buffer object.
     const auto copyInduces = [&model, this](const auto *mmdInduces) {
         const size_t subMeshCount = model->GetSubMeshCount();
         for (size_t i = 0; i < subMeshCount; ++i) {
@@ -644,30 +668,26 @@ void Routine::Update() {
     const auto model = mmd_.GetModel();
     const size_t vertCount = model->GetVertexCount();
 
+    // [新增] 更新相机插值
+    const double elapsedTime = stm_sec(stm_since(timeLastFrame_));
+    updateNotchCamera(static_cast<float>(elapsedTime));
+
     auto& animations = mmd_.GetAnimations();
 
     if (!animations.empty()) {
-        const double elapsedTime = stm_sec(stm_since(timeLastFrame_));
         const double vmdFrame = stm_sec(stm_since(timeBeginAnimation_)) * Constant::VmdFPS;
 
-        // Update camera animation.
         auto& [vmdAnim, cameraAnim] = animations[motionID_];
-        if (cameraAnim) {
-            cameraAnim->Evaluate(vmdFrame);
-            const auto& mmdCamera = cameraAnim->GetCamera();
-            saba::MMDLookAtCamera lookAtCamera(mmdCamera);
-            viewMatrix_ =
-                glm::lookAt(lookAtCamera.m_eye, lookAtCamera.m_center, lookAtCamera.m_up);
-            projectionMatrix_ = glm::perspectiveFovRH(
-                mmdCamera.m_fov, static_cast<float>(size.x), static_cast<float>(size.y), 1.0f,
-                10000.0f);
-        } else {
-            viewMatrix_ =
-                glm::lookAt(defaultCamera_.eye, defaultCamera_.center, glm::vec3(0, 1, 0));
-            projectionMatrix_ = glm::perspectiveFovRH(
-                glm::radians(30.0f), static_cast<float>(size.x), static_cast<float>(size.y),
-                1.0f, 10000.0f);
-        }
+
+        // [修改] 强制使用灵动岛相机逻辑
+        viewMatrix_ = glm::lookAt(
+            currentRenderCamera_.eye, currentRenderCamera_.center, glm::vec3(0, 1, 0));
+        projectionMatrix_ = glm::perspectiveFovRH(
+            glm::radians(currentRenderCamera_.fov), static_cast<float>(size.x),
+            static_cast<float>(size.y), 1.0f, 10000.0f);
+
+        // 原有的相机动画逻辑被上面的代码覆盖，为了 Notch 效果，我们通常不需要 VMD
+        // 中的相机动作。 如果需要混合，可以在这里添加条件判断。
 
         viewMatrix_ = userView_.GetWorldViewMatrix() * viewMatrix_;
 
@@ -713,12 +733,15 @@ void Routine::Update() {
             needBridgeMotions_ = true;
         }
     } else {
-        viewMatrix_ =
-            userView_.GetWorldViewMatrix() *
-            glm::lookAt(defaultCamera_.eye, defaultCamera_.center, glm::vec3(0, 1, 0));
+        // 无动画时的静态展示逻辑
+        viewMatrix_ = glm::lookAt(
+            currentRenderCamera_.eye, currentRenderCamera_.center, glm::vec3(0, 1, 0));
         projectionMatrix_ = glm::perspectiveFovRH(
-            glm::radians(30.0f), static_cast<float>(size.x), static_cast<float>(size.y), 1.0f,
-            10000.0f);
+            glm::radians(currentRenderCamera_.fov), static_cast<float>(size.x),
+            static_cast<float>(size.y), 1.0f, 10000.0f);
+
+        viewMatrix_ = userView_.GetWorldViewMatrix() * viewMatrix_;
+
         sg_update_buffer(
             posVB_, sg_range{
                         .ptr = model->GetPositions(),
