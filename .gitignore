@@ -7,3 +7,5 @@ package/
 default-attachments/
 misc/
 auto/
+**/models/
+**/motions/
