@@ -137,7 +137,7 @@
         Info::Log("Display not found: %ld", scID);
         return;
     }
-    // [修改] 切换屏幕时也保持在顶部
+    // remaining at the top center of the target screen
     NSRect frame = window_.frame;
     NSRect screenFrame = dst.frame;
     frame.origin.x = screenFrame.origin.x + (screenFrame.size.width - frame.size.width) / 2.0;
