@@ -4,10 +4,13 @@ yoMMD on Dynamic Island is a software to show MMD models on Desktop, as known as
 
 Forked from original [yoMMD](https://github.com/mityu/yoMMD).
 
+<img width="1512" height="982" alt="showcase" src="https://github.com/user-attachments/assets/653ae04c-8e7d-4ddb-a16e-bc4040e8304b" />
+
+
 <!-- ![Screenshot](https://github.com/mityu/yoMMD/assets/24771416/cefd0730-be00-42d7-abdc-b9a2ba64f89e) -->
 <!---->
-<!-- - MMD Model: つみ式ミクさん v4 by つみだんご様 (https://3d.nicovideo.jp/works/td56081) -->
-<!-- - Motion: ぼんやり待ちループ by むつごろう様 (https://3d.nicovideo.jp/works/td30405) -->
+- MMD Model: 【绝区零】爱丽丝 (https://www.aplaybox.com/details/model/JLBMdXfASh2e)
+- Motion: ぼんやり待ちループ by むつごろう様 (https://3d.nicovideo.jp/works/td30405)
 
 # Pre-build binary
 
