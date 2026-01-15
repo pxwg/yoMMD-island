@@ -106,6 +106,8 @@
 
     // HACK: Forced initial frame to avoid auto-resize issues
     [window_ setFrame:initialRect display:YES];
+    containerView.layer.cornerRadius = kNotchHeight / 2.0;
+    containerView.layer.masksToBounds = YES;
 }
 
 - (void)createStatusItem {
